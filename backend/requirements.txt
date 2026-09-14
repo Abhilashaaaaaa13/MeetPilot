@@ -1,3 +1,9 @@
 fastapi
 uvicorn
 pydantic
+python-dotenv
+langgraph
+langchain-core
+langchain-groq
+httpx
+requests
