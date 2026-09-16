@@ -1,4 +1,4 @@
-#============== Import ===============#
+#============== Imports =============#
 
 import base64
 from email.mime.text import MIMEText
@@ -7,11 +7,11 @@ from googleapiclient.discovery import build
 from fastmcp import FastMCP
 from auth.token_store import get_valid_token
 
-#============== Connection =============#
+#=============== Connection ============#
 
 mcp = FastMCP("Gmail")
 
-#=============== Tools =================#
+#================== Tools ===============#
 
 @mcp.tool()
 def gmail_send_email(user_id: str, to: str, subject: str, body: str) -> dict:

@@ -1,27 +1,41 @@
-import asyncio
 import os
-from typing import Any, Dict, Literal
+from pathlib import Path
+from typing import Literal
 
 from langgraph.graph import StateGraph, END
 
 from .llm import get_llm
 from .states import AgentState
 
-try:
-    from ..mcp.notion import NotionClient
-    from ..mcp.jira import JiraClient
-    from ..mcp.slack import SlackClient
-except ImportError:
-    from mcp.notion import NotionClient
-    from mcp.jira import JiraClient
-    from mcp.slack import SlackClient
+from mcp.notion import notion_create_page
+from mcp.jira import jira_create_ticket
+from mcp.slack import slack_post_message
+from mcp.github import github_create_issue
+from mcp.gmail import gmail_send_email
+from mcp.calendar import calendar_create_event
+
+
+PROMPT_PATH = Path(__file__).resolve().parent.parent / "prompt.md"
+
+
+def _load_system_prompt() -> str:
+    """Reads the '## System Prompt' section out of prompt.md."""
+    text = PROMPT_PATH.read_text(encoding="utf-8")
+    section = text.split("## System Prompt", 1)[1]
+    section = section.split("## Intent Classification Rules", 1)[0]
+    return section.strip()
 
 
 def classify_intent(state: AgentState) -> AgentState:
     query = state.get("query", "")
     query_lower = query.lower()
 
-    if any(keyword in query_lower for keyword in ["slack", "notion", "jira", "ticket", "issue", "task"]):
+    tooling_keywords = [
+        "slack", "notion", "jira", "github", "gmail", "email",
+        "calendar", "meeting", "event", "ticket", "issue", "task",
+    ]
+
+    if any(keyword in query_lower for keyword in tooling_keywords):
         state["intent"] = "tooling"
     elif any(keyword in query_lower for keyword in ["summary", "summarize", "report", "update"]):
         state["intent"] = "summarize"
@@ -31,55 +45,86 @@ def classify_intent(state: AgentState) -> AgentState:
     return state
 
 
-def _run_async(coro) -> str:
+def _safe_call(fn, *args, **kwargs) -> str:
+    """
+    Wraps a tool call so a missing OAuth connection (get_valid_token raising
+    ValueError) or any other failure becomes a readable message instead of
+    crashing the graph.
+    """
     try:
-        result = asyncio.run(coro)
+        result = fn(*args, **kwargs)
         return str(result)
-    except NotImplementedError as exc:
+    except ValueError as exc:
         return f"Tool call skipped: {exc}"
     except Exception as exc:
         return f"Tool call failed: {exc}"
 
 
-async def _call_notion(query: str) -> str:
-    client = NotionClient()
-    if not client.is_configured:
-        return "Notion tool is not configured yet. Set NOTION_API_KEY to enable it."
-
-    database_id = os.getenv("NOTION_DATABASE_ID", "")
-    return str(await client.query_database(database_id=database_id, filter_payload={"query": query}))
-
-
-async def _call_jira(query: str) -> str:
-    client = JiraClient()
-    if not client.is_configured:
-        return "Jira tool is not configured yet. Set JIRA_EMAIL, JIRA_API_TOKEN, and JIRA_BASE_URL to enable it."
-
-    return str(await client.search_issues(jql=query))
-
-
-async def _call_slack() -> str:
-    client = SlackClient()
-    if not client.is_configured:
-        return "Slack tool is not configured yet. Set SLACK_BOT_TOKEN to enable it."
-
-    channel_id = os.getenv("SLACK_CHANNEL_ID", "")
-    return str(await client.get_channel_messages(channel_id=channel_id))
-
-
 def call_tools(state: AgentState) -> AgentState:
     query = state.get("query", "")
     query_lower = query.lower()
+    user_id = state.get("user_id", "")
     tool_calls = []
 
-    if "notion" in query_lower:
-        tool_calls.append(f"notion: {_run_async(_call_notion(query))}")
+    # NOTE: all 6 tools below are WRITE actions. Parameters (repo name,
+    # email recipient, event times, etc.) are pulled from env defaults --
+    # there's no real structured-argument extraction from the query text.
+    # For a production version, this is where an LLM function-calling /
+    # structured-output step would parse real params ("to", "subject",
+    # "database_id") out of the query. Flagging this rather than faking it.
 
-    if any(keyword in query_lower for keyword in ["jira", "ticket", "issue", "task"]):
-        tool_calls.append(f"jira: {_run_async(_call_jira(query))}")
+    if "notion" in query_lower:
+        tool_calls.append("notion: " + _safe_call(
+            notion_create_page,
+            user_id=user_id,
+            title=query[:100],
+            content=query,
+            database_id=os.getenv("NOTION_DEFAULT_DATABASE_ID", ""),
+        ))
+
+    if any(k in query_lower for k in ["jira", "ticket", "issue", "task"]) and "github" not in query_lower:
+        tool_calls.append("jira: " + _safe_call(
+            jira_create_ticket,
+            user_id=user_id,
+            project_key=os.getenv("JIRA_DEFAULT_PROJECT_KEY", ""),
+            summary=query[:100],
+            description=query,
+        ))
 
     if "slack" in query_lower:
-        tool_calls.append(f"slack: {_run_async(_call_slack())}")
+        tool_calls.append("slack: " + _safe_call(
+            slack_post_message,
+            user_id=user_id,
+            channel=os.getenv("SLACK_DEFAULT_CHANNEL", "#general"),
+            text=query,
+        ))
+
+    if "github" in query_lower:
+        tool_calls.append("github: " + _safe_call(
+            github_create_issue,
+            user_id=user_id,
+            repo=os.getenv("GITHUB_DEFAULT_REPO", ""),
+            title=query[:100],
+            body=query,
+        ))
+
+    if "email" in query_lower or "gmail" in query_lower:
+        tool_calls.append("gmail: " + _safe_call(
+            gmail_send_email,
+            user_id=user_id,
+            to=os.getenv("DEFAULT_EMAIL_RECIPIENT", ""),
+            subject=query[:100],
+            body=query,
+        ))
+
+    if "calendar" in query_lower or "meeting" in query_lower or "event" in query_lower:
+        tool_calls.append("calendar: " + _safe_call(
+            calendar_create_event,
+            user_id=user_id,
+            summary=query[:100],
+            start_time=os.getenv("DEFAULT_EVENT_START", ""),
+            end_time=os.getenv("DEFAULT_EVENT_END", ""),
+        ))
 
     if not tool_calls:
         tool_calls.append("No matching tool found for this query.")
@@ -94,11 +139,7 @@ def generate_response(state: AgentState) -> AgentState:
     intent = state.get("intent", "general")
     tool_calls = state.get("tool_calls", [])
 
-    system_prompt = (
-        "You are MeetPilot, a helpful assistant for project coordination and workflow support. "
-        "Use the user query, the detected intent, and available tooling context to respond clearly and concisely."
-    )
-
+    system_prompt = _load_system_prompt()
     tool_context = "\n".join(tool_calls) if tool_calls else "No tools were called."
 
     response = llm.invoke(

@@ -1,15 +1,17 @@
 from typing import TypedDict, Annotated
+from langgraph.graph.message import add_messages
+from pydantic import BaseModel
 
-
-class AgentState(TypedDict):
+class AgentState(BaseModel):
     query: str
     intent: str
     response: str
-    messages: list[str]
+    messages: Annotated[list,add_messages]
     tool_calls: list[str]
+    user_id: str
 
 
-class WorkflowMemory(TypedDict):
+class WorkflowMemory(BaseModel):
     thread_id: str
     last_intent: str
     last_response: str
@@ -17,7 +19,7 @@ class WorkflowMemory(TypedDict):
     metadata: dict
 
 
-class AgentContext(TypedDict):
+class AgentContext(BaseModel):
     user_id: str
     conversation_id: str
     session_id: str
