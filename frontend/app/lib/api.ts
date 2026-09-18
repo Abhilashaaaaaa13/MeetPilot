@@ -29,3 +29,36 @@ export async function sendChatMessage({
 
   return response.json();
 }
+
+export interface McpConnection {
+  id: string;
+  name: string;
+  connected: boolean;
+}
+
+export async function getConnections(userId: string): Promise<McpConnection[]> {
+  const response = await fetch(
+    `${API_BASE_URL}/connections?user_id=${encodeURIComponent(userId)}`
+  );
+
+  if (!response.ok) {
+    throw new Error(`Failed to load MCP connections (status ${response.status})`);
+  }
+
+  return response.json();
+}
+
+export function getConnectUrl(service: string, userId: string): string {
+  return `${API_BASE_URL}/connect/${service}?user_id=${encodeURIComponent(userId)}`;
+}
+
+export async function disconnectService(service: string, userId: string): Promise<void> {
+  const response = await fetch(
+    `${API_BASE_URL}/connect/${service}?user_id=${encodeURIComponent(userId)}`,
+    { method: "DELETE" }
+  );
+
+  if (!response.ok) {
+    throw new Error(`Failed to disconnect ${service} (status ${response.status})`);
+  }
+}

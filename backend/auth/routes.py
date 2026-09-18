@@ -8,10 +8,23 @@ from urllib.parse import urlencode
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import RedirectResponse
 
-from auth.config import OAUTH_PROVIDERS, REDIRECT_BASE_URL
-from auth.token import save_tokens
+from auth.config import OAUTH_PROVIDERS, REDIRECT_BASE_URL, FRONTEND_URL, MCP_SERVICE_NAMES
+from auth.token import save_tokens, delete_tokens, get_connected_services
 
 router = APIRouter()
+
+
+@router.get("/connections")
+def list_connections(user_id: str):
+    """
+    Backs the sidebar's MCP toggle list: every known service plus whether
+    this user has already connected it.
+    """
+    connected = set(get_connected_services(user_id))
+    return [
+        {"id": service, "name": name, "connected": service in connected}
+        for service, name in MCP_SERVICE_NAMES.items()
+    ]
 
 
 @router.get("/connect/{service}")
@@ -36,6 +49,16 @@ def connect(service: str, user_id: str):
         **provider["extra_auth_params"],
     }
     return RedirectResponse(f"{provider['auth_url']}?{urlencode(params)}")
+
+
+@router.delete("/connect/{service}")
+def disconnect(service: str, user_id: str):
+    """Frontend toggle-off hits this to drop a stored connection."""
+    if service not in OAUTH_PROVIDERS:
+        raise HTTPException(404, f"Unknown service '{service}'")
+
+    delete_tokens(user_id, service)
+    return {"status": "disconnected", "service": service, "user_id": user_id}
 
 
 @router.get("/callback/{service}")
@@ -73,4 +96,4 @@ def callback(service: str, code: str, state: str):
         expires_in=data.get("expires_in"),
     )
 
-    return {"status": "connected", "service": service, "user_id": user_id}
+    return RedirectResponse(f"{FRONTEND_URL}/?connected={service}")

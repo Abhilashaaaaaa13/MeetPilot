@@ -8,6 +8,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from fastapi import FastAPI, HTTPException, File, Form, UploadFile
+from fastapi.middleware.cors import CORSMiddleware
 from typing import Optional
 from langgraph.types import Command
 
@@ -34,6 +35,13 @@ app = FastAPI(title="MeetPilot API", version="1.0.0")
 agent_graph = build_graph()
 
 init_db()
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[os.environ.get("FRONTEND_URL", "http://localhost:3000")],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 app.include_router(oauth_router)
 

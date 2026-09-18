@@ -2,30 +2,19 @@
 
 import { useState } from "react";
 import { sendChatMessage } from "../lib/api";
+import { useAuth } from "../lib/auth-context";
 import type { ChatMessage } from "../types/chat";
 import ChatList from "./ChatList";
 import SearchBar from "./SearchBar";
 
-const USER_ID_STORAGE_KEY = "meetpilot_user_id";
-
-function getOrCreateUserId(): string {
-  if (typeof window === "undefined") return "guest";
-
-  const existingId = window.localStorage.getItem(USER_ID_STORAGE_KEY);
-  if (existingId) return existingId;
-
-  const newId = crypto.randomUUID();
-  window.localStorage.setItem(USER_ID_STORAGE_KEY, newId);
-  return newId;
-}
-
 export default function ChatInterface() {
+  const { userId } = useAuth();
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const handleSend = async (text: string, file: File | null) => {
-    const userId = getOrCreateUserId();
+    if (!userId) return;
 
     const userMessage: ChatMessage = {
       id: crypto.randomUUID(),

@@ -70,6 +70,12 @@ def get_valid_token(user_id: str, service: str) -> str:
 
     return tokens["access_token"]
 
+def delete_tokens(user_id: str, service: str) -> None:
+    """Removes a stored connection, e.g. when the user flips a sidebar toggle off."""
+    with _conn() as c:
+        c.execute("DELETE FROM connections WHERE user_id=? AND service=?", (user_id, service))
+
+
 def get_connected_services(user_id: str) -> list[str]:
     """Returns the list of service names this user has connected (e.g. ['notion', 'slack'])."""
     with _conn() as c:

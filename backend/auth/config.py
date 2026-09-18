@@ -44,3 +44,14 @@ OAUTH_PROVIDERS = {
 }
 
 REDIRECT_BASE_URL = os.environ.get("REDIRECT_BASE_URL", "http://localhost:8000")
+FRONTEND_URL = os.environ.get("FRONTEND_URL", "http://localhost:3000")
+
+# Display names for the sidebar's MCP server toggles. Gmail + Calendar share
+# a single "google" OAuth connection, so they surface as one toggle.
+MCP_SERVICE_NAMES = {
+    "notion": "Notion",
+    "google": "Google (Gmail & Calendar)",
+    "github": "GitHub",
+    "jira": "Jira",
+    "slack": "Slack",
+}
