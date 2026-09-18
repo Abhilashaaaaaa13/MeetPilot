@@ -5,7 +5,7 @@ from email.mime.text import MIMEText
 from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
 from fastmcp import FastMCP
-from auth.token_store import get_valid_token
+from auth.token import get_valid_token
 
 #=============== Connection ============#
 

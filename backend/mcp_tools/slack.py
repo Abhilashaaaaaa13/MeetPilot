@@ -2,7 +2,7 @@
 
 from slack_sdk import WebClient
 from fastmcp import FastMCP
-from auth.token_store import get_valid_token
+from auth.token import get_valid_token
 
 #============== Connection ==========#
 

@@ -1,10 +1,8 @@
 import os
 from typing import Optional
 
-try:
-    from langchain_groq import ChatGroq
-except ImportError:  # pragma: no cover
-    ChatGroq = None
+from langchain_groq import ChatGroq
+
 
 
 class MockLLM:

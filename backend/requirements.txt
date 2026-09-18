@@ -7,3 +7,13 @@ langchain-core
 langchain-groq
 httpx
 requests
+fastmcp
+slack_sdk 
+notion-client 
+PyGithub 
+jira 
+google-api-python-client 
+google-auth-httplib2 
+google-auth-oauthlib 
+mcp<2
+fastmcp-slim[server]
