@@ -18,3 +18,4 @@ google-auth-oauthlib
 mcp<2
 fastmcp-slim[server]
 firebase-admin cryptography
+cachetools

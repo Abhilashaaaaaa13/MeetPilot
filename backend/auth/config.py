@@ -2,8 +2,7 @@ import os
 
 
 def _env(name: str) -> str:
-    # Missing key pe crash nahi karta. Empty string milti hai, aur
-    # /connect/{service} usko "not configured" bata dega (routes.py mein check).
+
     return os.environ.get(name, "")
 
 
@@ -13,7 +12,7 @@ OAUTH_PROVIDERS = {
         "client_secret": _env("NOTION_CLIENT_SECRET"),
         "auth_url": "https://api.notion.com/v1/oauth/authorize",
         "token_url": "https://api.notion.com/v1/oauth/token",
-        "scopes": "",  # Notion scopes are configured in the integration settings, not here
+        "scopes": "",  
         "extra_auth_params": {"owner": "user"},
     },
     "google": {  # shared by gmail_mcp.py and calendar_mcp.py

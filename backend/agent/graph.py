@@ -1,4 +1,7 @@
+import os
+from datetime import datetime
 from typing import Literal
+from zoneinfo import ZoneInfo
 
 from langgraph.graph import StateGraph, END
 from langgraph.types import interrupt
@@ -6,10 +9,37 @@ from langgraph.checkpoint.memory import MemorySaver
 
 from .llm import get_llm
 from .states import AgentState
+from .prompt import build_prompt
+from .cache import make_key, get_cached, set_cached
 from agent.tool_schema import get_available_schemas, TOOL_REGISTRY
-from .prompt import SYSTEM_PROMPT
 
 from auth.token import get_connected_services
+
+
+USER_TIMEZONE = os.environ.get("DEFAULT_TIMEZONE", "Asia/Kolkata")
+SERVICE_ALIASES = {"google": ["gmail", "google_calendar"]}
+
+
+def _today() -> str:
+    try:
+        return datetime.now(ZoneInfo(USER_TIMEZONE)).strftime("%Y-%m-%d (%A)")
+    except Exception:
+        return datetime.now().strftime("%Y-%m-%d (%A)")
+
+
+def _expand_services(connected: list[str]) -> list[str]:
+    expanded = []
+    for service in connected:
+        expanded.extend(SERVICE_ALIASES.get(service, [service]))
+    return expanded
+
+
+def _system_prompt(connected: list[str]) -> str:
+    return build_prompt(_today(), USER_TIMEZONE, _expand_services(connected))
+
+
+def _model_name(llm) -> str:
+    return str(getattr(llm, "model_name", None) or getattr(llm, "model", None) or "unknown")
 
 
 def _safe_call(fn, *args, **kwargs) -> str:
@@ -32,21 +62,40 @@ def decide_tool(state: AgentState) -> dict:
     if not schemas:
         return {"pending_tool": None}
 
+    system_prompt = _system_prompt(connected)
     llm = get_llm()
-    llm_with_tools = llm.bind_tools(schemas)
+
+    key = make_key(
+        user_id=user_id,
+        query=query,
+        connected=_expand_services(connected),
+        current_date=_today(),
+        model_name=_model_name(llm),
+        system_prompt=system_prompt,
+    )
+
+    cached = get_cached(key)
+    if cached is not None:
+        return cached
+
+    llm_with_tools = llm.bind_tools(schemas) if hasattr(llm, "bind_tools") else llm
     response = llm_with_tools.invoke([
-        {"role": "system", "content": SYSTEM_PROMPT},
+        {"role": "system", "content": system_prompt},
         {"role": "user", "content": query},
     ])
 
     tool_calls = getattr(response, "tool_calls", None)
     if tool_calls:
-        # NOTE: only the first tool call is handled per turn.
         call = tool_calls[0]
-        return {"pending_tool": {"name": call["name"], "args": call["args"]}}
+        result = {"pending_tool": {"name": call["name"], "args": call["args"]}}
+        set_cached(key, result)
+        return result
 
-    return {"pending_tool": None, "response": getattr(response, "content", "") or ""}
-
+    content = getattr(response, "content", "") or ""
+    result = {"pending_tool": None, "response": content}
+    if content:
+        set_cached(key, result)
+    return result
 
 
 def request_confirmation(state: AgentState) -> dict:
@@ -57,7 +106,6 @@ def request_confirmation(state: AgentState) -> dict:
         "confirmation_decision": decision_payload.get("decision", "reject"),
         "modified_args": decision_payload.get("modified_args"),
     }
-
 
 
 def execute_tool(state: AgentState) -> dict:
@@ -82,15 +130,15 @@ def route_after_decide(state: AgentState) -> Literal["request_confirmation", "ge
 
 
 def generate_response(state: AgentState) -> dict:
-    # If decide_tool already produced a plain-text answer (no tool needed), keep it.
     if state.response and not state.tool_calls:
         return {"messages": [state.query, state.response], "tool_calls": []}
 
     llm = get_llm()
+    system_prompt = _system_prompt(get_connected_services(state.user_id))
     tool_context = "\n".join(state.tool_calls) if state.tool_calls else "No tools were called."
 
     response = llm.invoke([
-        {"role": "system", "content": SYSTEM_PROMPT},
+        {"role": "system", "content": system_prompt},
         {"role": "user", "content": f"Tool results: {tool_context}\nUser query: {state.query}"},
     ])
 
@@ -116,6 +164,5 @@ def build_graph():
     workflow.add_edge("execute_tool", "generate_response")
     workflow.add_edge("generate_response", END)
 
-    # NOTE: MemorySaver is in-process only -- lost on restart.
     checkpointer = MemorySaver()
     return workflow.compile(checkpointer=checkpointer)
