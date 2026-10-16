@@ -84,7 +84,7 @@ def run_agent(query: str, user_id: str):
     if not user_id or not user_id.strip():
         raise HTTPException(status_code=400, detail="user_id cannot be empty.")
 
-    thread_id = user_id  # NOTE: one active thread per user -- fine for a demo
+    thread_id = user_id  
     config = {"configurable": {"thread_id": thread_id}}
 
     try:

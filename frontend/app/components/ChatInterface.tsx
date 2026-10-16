@@ -12,13 +12,10 @@ export default function ChatInterface() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  // NEW: tracks whether the next message the user sends is a reply to a
-  // pending tool-call confirmation, rather than a fresh query.
   const [isAwaitingConfirmation, setIsAwaitingConfirmation] = useState(false);
 
   const handleSend = async (text: string, file: File | null) => {
-    if (!userId) return;
+    if (!userId || isLoading) return;
 
     const userMessage: ChatMessage = {
       id: crypto.randomUUID(),
@@ -35,8 +32,6 @@ export default function ChatInterface() {
     setIsLoading(true);
 
     try {
-      // NEW: route to /agent/confirm instead of /agent when a confirmation
-      // is pending -- this is what makes the pause/resume flow actually work.
       const agentResponse: AgentResponse = isAwaitingConfirmation
         ? await sendConfirmation({ userId, reply: text })
         : await sendChatMessage({ text, userId, file });
@@ -54,7 +49,6 @@ export default function ChatInterface() {
           },
         ]);
       } else {
-        // status === "done" -- normal answer, and any pending confirmation is resolved
         setIsAwaitingConfirmation(false);
         setMessages((prev) => [
           ...prev,
@@ -73,20 +67,52 @@ export default function ChatInterface() {
     }
   };
 
+  const handleReply = (text: string) => {
+    void handleSend(text, null);
+  };
+
   return (
     <div className="flex h-full w-full flex-col">
-      <ChatList messages={messages} isLoading={isLoading} />
+      <ChatList
+        messages={messages}
+        isLoading={isLoading}
+        onReply={handleReply}
+        awaitingConfirmation={isAwaitingConfirmation}
+      />
+
       {error && (
-        <div className="mx-auto w-full max-w-3xl px-4 pb-2 text-sm text-red-500">
-          {error}
+        <div className="mx-auto w-full max-w-3xl px-4 pb-2">
+          <div
+            role="alert"
+            className="flex items-start justify-between gap-3 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300"
+          >
+            <span>{error}</span>
+            <button
+              type="button"
+              onClick={() => setError(null)}
+              className="text-base leading-none opacity-60 hover:opacity-100"
+              aria-label="Dismiss error"
+            >
+              ×
+            </button>
+          </div>
         </div>
       )}
+
       {isAwaitingConfirmation && (
-        <div className="mx-auto w-full max-w-3xl px-4 pb-1 text-xs text-amber-600">
-          Waiting for your confirmation on the action above.
+        <div className="mx-auto w-full max-w-3xl px-4 pb-2">
+          <div className="flex items-center gap-2 rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-200">
+            <span className="h-2 w-2 animate-pulse rounded-full bg-amber-500" />
+            Waiting for your confirmation on the action above.
+          </div>
         </div>
       )}
-      <SearchBar onSend={handleSend} disabled={isLoading} />
+
+      <SearchBar
+        onSend={handleSend}
+        disabled={isLoading}
+        awaitingConfirmation={isAwaitingConfirmation}
+      />
     </div>
   );
 }

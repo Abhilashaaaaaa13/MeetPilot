@@ -4,10 +4,7 @@ import { useEffect, useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "../lib/auth-context";
 
-// Firebase auth errors always carry a `.code` like "auth/wrong-password".
-// Checking it this way (rather than `instanceof FirebaseError`) avoids a
-// known bundler issue where importing FirebaseError from "firebase/app"
-// breaks some Next.js builds.
+
 function friendlyAuthError(err: unknown): string {
   const code = (err as { code?: string })?.code;
   switch (code) {

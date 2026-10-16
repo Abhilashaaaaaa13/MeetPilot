@@ -26,16 +26,12 @@ export default function HomePage() {
   const [menuOpen, setMenuOpen] = useState(false);
   const [notice, setNotice] = useState<Notice | null>(null);
 
-  // Wait for Firebase to finish checking before redirecting,
-  // warna refresh pe logged-in user bhi /login pe chala jayega.
   useEffect(() => {
     if (isReady && !userId) {
       router.replace("/login");
     }
   }, [isReady, userId, router]);
 
-  // Backend OAuth callback redirects to /?connected=<service> or
-  // /?connection_error=<service>. Show a toast, then clean the URL.
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const connected = params.get("connected");
@@ -61,37 +57,47 @@ export default function HomePage() {
     return () => clearTimeout(timer);
   }, [notice]);
 
+  useEffect(() => {
+    if (!menuOpen) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setMenuOpen(false);
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [menuOpen]);
+
   if (!isReady || !userId) {
     return (
-      <div className="flex h-dvh items-center justify-center">
-        <p className="text-sm text-black/60 dark:text-white/60">Loading...</p>
+      <div className="flex h-dvh items-center justify-center bg-white dark:bg-neutral-950">
+        <div className="flex items-center gap-3 text-sm text-black/60 dark:text-white/60">
+          <span className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
+          Loading...
+        </div>
       </div>
     );
   }
 
   return (
     <div className="flex h-dvh w-full overflow-hidden bg-white text-gray-900 dark:bg-neutral-950 dark:text-gray-100">
-      {/* Desktop sidebar */}
       <div className="hidden md:block">
         <Sidebar />
       </div>
 
-      {/* Mobile drawer */}
       {menuOpen && (
         <div className="fixed inset-0 z-40 md:hidden">
           <div
-            className="absolute inset-0 bg-black/40"
+            className="absolute inset-0 bg-black/40 backdrop-blur-sm"
             onClick={() => setMenuOpen(false)}
             aria-hidden="true"
           />
-          <div className="relative h-full w-72 max-w-[85%] bg-white shadow-xl dark:bg-neutral-950">
-            <Sidebar />
+          <div className="relative h-full w-72 max-w-[85%] shadow-xl">
+            <Sidebar onClose={() => setMenuOpen(false)} />
           </div>
         </div>
       )}
 
       <main className="relative flex min-w-0 flex-1 flex-col">
-        <header className="flex items-center gap-3 border-b border-black/10 px-4 py-3 dark:border-white/10">
+        <header className="flex items-center gap-3 border-b border-black/10 bg-white/80 px-4 py-3 backdrop-blur dark:border-white/10 dark:bg-neutral-950/80">
           <button
             type="button"
             onClick={() => setMenuOpen(true)}
@@ -100,16 +106,22 @@ export default function HomePage() {
           >
             ☰
           </button>
-          <h1 className="text-base font-semibold tracking-tight">MeetPilot</h1>
+          <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-gradient-to-br from-blue-600 to-indigo-600 text-xs font-bold text-white">
+            M
+          </div>
+          <div className="min-w-0">
+            <h1 className="text-sm font-semibold leading-tight tracking-tight">MeetPilot</h1>
+            <p className="truncate text-[11px] leading-tight text-black/50 dark:text-white/50">
+              Meeting follow-ups, on autopilot
+            </p>
+          </div>
         </header>
 
         {notice && (
           <div
             role="status"
-            className={`absolute top-16 left-1/2 z-50 -translate-x-1/2 rounded-full px-4 py-2 text-sm font-medium shadow-lg ${
-              notice.kind === "success"
-                ? "bg-green-600 text-white"
-                : "bg-red-600 text-white"
+            className={`absolute left-1/2 top-16 z-50 -translate-x-1/2 rounded-full px-4 py-2 text-sm font-medium shadow-lg ${
+              notice.kind === "success" ? "bg-green-600 text-white" : "bg-red-600 text-white"
             }`}
           >
             {notice.text}

@@ -19,3 +19,4 @@ mcp<2
 fastmcp-slim[server]
 firebase-admin cryptography
 cachetools
+python-docx pypdf
