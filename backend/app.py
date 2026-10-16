@@ -17,16 +17,15 @@ from utils.fileReader import extract_text_from_file
 from agent.graph import build_graph
 from agent.confirmation import classify_confirmation_reply
 
-from .auth.token import init_db
-from .auth.routes import router as oauth_router
+from auth.token import init_db
+from auth.routes import router as oauth_router
 
-
-from .mcp_tools.notion import mcp as notion_mcp
-from .mcp_tools.gmail import mcp as gmail_mcp
-from .mcp_tools.calendar import mcp as calendar_mcp
-from .mcp_tools.github import mcp as github_mcp
-from .mcp_tools.jira import mcp as jira_mcp
-from .mcp_tools.slack import mcp as slack_mcp
+from mcp_tools.notion import mcp as notion_mcp
+from mcp_tools.gmail import mcp as gmail_mcp
+from mcp_tools.calendar import mcp as calendar_mcp
+from mcp_tools.github import mcp as github_mcp
+from mcp_tools.jira import mcp as jira_mcp
+from mcp_tools.slack import mcp as slack_mcp
 
 
 #============= Connections ============#

@@ -1,8 +1,3 @@
-"""
-Two generic routes, parameterized by `service`, handle OAuth for all
-6 providers -- this is what your frontend's "connect" toggle calls.
-"""
-
 import httpx
 from urllib.parse import urlencode
 from fastapi import APIRouter, HTTPException
@@ -62,13 +57,19 @@ def disconnect(service: str, user_id: str):
 
 
 @router.get("/callback/{service}")
-def callback(service: str, code: str, state: str):
+def callback(service: str, state: str, code: str | None = None, error: str | None = None):
     """
-    Provider redirects here after the user clicks Allow. `state` is the
-    user_id we passed in. Exchange the code for tokens and store them.
+    Provider redirects here after the user responds to the consent screen.
+    `state` is the user_id we passed in. If the user denied access, most
+    providers send `error` instead of `code` -- CHANGED: handle that first
+    instead of requiring `code` unconditionally, which previously caused a
+    raw 422 validation error page on denial instead of a clean redirect.
     """
     if service not in OAUTH_PROVIDERS:
         raise HTTPException(404, f"Unknown service '{service}'")
+
+    if error or not code:
+        return RedirectResponse(f"{FRONTEND_URL}/?connection_error={service}")
 
     provider = OAUTH_PROVIDERS[service]
     redirect_uri = f"{REDIRECT_BASE_URL}/callback/{service}"

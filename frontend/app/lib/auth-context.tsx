@@ -4,51 +4,75 @@ import {
   createContext,
   useContext,
   useEffect,
+  useMemo,
   useState,
   type ReactNode,
 } from "react";
-
-const USER_ID_STORAGE_KEY = "meetpilot_user_id";
+import {
+  onAuthStateChanged,
+  signInWithPopup,
+  signInWithEmailAndPassword,
+  createUserWithEmailAndPassword,
+  signOut,
+  type User,
+} from "firebase/auth";
+import { auth, googleProvider } from "../config/firebase";
 
 interface AuthContextValue {
+  user: User | null;
   userId: string | null;
+  // false until Firebase has told us whether someone is logged in.
+  // Pages should wait for this before redirecting, otherwise a logged-in
+  // user gets bounced to /login on every refresh.
   isReady: boolean;
-  login: (id: string) => void;
-  logout: () => void;
+  loginWithGoogle: () => Promise<void>;
+  loginWithEmail: (email: string, password: string) => Promise<void>;
+  signupWithEmail: (email: string, password: string) => Promise<void>;
+  logout: () => Promise<void>;
 }
 
-const AuthContext = createContext<AuthContextValue | undefined>(undefined);
+const AuthContext = createContext<AuthContextValue | null>(null);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [userId, setUserId] = useState<string | null>(null);
+  const [user, setUser] = useState<User | null>(null);
   const [isReady, setIsReady] = useState(false);
 
   useEffect(() => {
-    setUserId(window.localStorage.getItem(USER_ID_STORAGE_KEY));
-    setIsReady(true);
+    const unsubscribe = onAuthStateChanged(auth, (nextUser) => {
+      setUser(nextUser);
+      setIsReady(true);
+    });
+    return unsubscribe;
   }, []);
 
-  const login = (id: string) => {
-    const trimmed = id.trim();
-    if (!trimmed) return;
-    window.localStorage.setItem(USER_ID_STORAGE_KEY, trimmed);
-    setUserId(trimmed);
-  };
-
-  const logout = () => {
-    window.localStorage.removeItem(USER_ID_STORAGE_KEY);
-    setUserId(null);
-  };
-
-  return (
-    <AuthContext.Provider value={{ userId, isReady, login, logout }}>
-      {children}
-    </AuthContext.Provider>
+  const value = useMemo<AuthContextValue>(
+    () => ({
+      user,
+      userId: user?.uid ?? null,
+      isReady,
+      loginWithGoogle: async () => {
+        await signInWithPopup(auth, googleProvider);
+      },
+      loginWithEmail: async (email, password) => {
+        await signInWithEmailAndPassword(auth, email, password);
+      },
+      signupWithEmail: async (email, password) => {
+        await createUserWithEmailAndPassword(auth, email, password);
+      },
+      logout: async () => {
+        await signOut(auth);
+      },
+    }),
+    [user, isReady],
   );
+
+  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
 
 export function useAuth(): AuthContextValue {
   const ctx = useContext(AuthContext);
-  if (!ctx) throw new Error("useAuth must be used within an AuthProvider");
+  if (!ctx) {
+    throw new Error("useAuth must be used inside <AuthProvider>");
+  }
   return ctx;
 }
