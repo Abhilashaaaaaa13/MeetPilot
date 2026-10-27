@@ -11,6 +11,7 @@ export interface ChatMessage {
   role: ChatRole;
   text: string;
   attachment?: ChatAttachment;
+  isConfirmationPrompt?: boolean;
   createdAt: number;
 }
 

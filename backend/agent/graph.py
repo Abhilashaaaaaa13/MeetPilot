@@ -1,4 +1,5 @@
 import os
+import re
 from datetime import datetime
 from typing import Literal
 from zoneinfo import ZoneInfo
@@ -18,6 +19,16 @@ from auth.token import get_connected_services
 
 USER_TIMEZONE = os.environ.get("DEFAULT_TIMEZONE", "Asia/Kolkata")
 SERVICE_ALIASES = {"google": ["gmail", "google_calendar"]}
+
+NOTION_TOOL = "notion_create_page_schema"
+NOTION_ID = re.compile(
+    r"[0-9a-fA-F]{8}-?[0-9a-fA-F]{4}-?[0-9a-fA-F]{4}-?[0-9a-fA-F]{4}-?[0-9a-fA-F]{12}"
+)
+NOTION_LOCATION_HELP = (
+    "I can't create the Notion page yet because no Notion location is set. "
+    "Add NOTION_DEFAULT_PARENT_ID (a Notion database ID or its link) to the backend .env file, "
+    "share that database with your integration, and restart the server."
+)
 
 
 def _today() -> str:
@@ -40,6 +51,28 @@ def _system_prompt(connected: list[str]) -> str:
 
 def _model_name(llm) -> str:
     return str(getattr(llm, "model_name", None) or getattr(llm, "model", None) or "unknown")
+
+
+def _notion_id(value) -> str | None:
+    match = NOTION_ID.search(str(value or ""))
+    return match.group(0) if match else None
+
+
+def _finalize(result: dict) -> dict:
+    pending = result.get("pending_tool")
+    if not pending:
+        return result
+
+    name = pending["name"]
+    args = dict(pending["args"])
+
+    if name == NOTION_TOOL:
+        parent = _notion_id(args.get("database_id")) or _notion_id(os.environ.get("NOTION_DEFAULT_PARENT_ID"))
+        if not parent:
+            return {"pending_tool": None, "response": NOTION_LOCATION_HELP}
+        args["database_id"] = parent
+
+    return {**result, "pending_tool": {"name": name, "args": args}}
 
 
 def _safe_call(fn, *args, **kwargs) -> str:
@@ -76,7 +109,7 @@ def decide_tool(state: AgentState) -> dict:
 
     cached = get_cached(key)
     if cached is not None:
-        return cached
+        return _finalize(cached)
 
     llm_with_tools = llm.bind_tools(schemas) if hasattr(llm, "bind_tools") else llm
     response = llm_with_tools.invoke([
@@ -89,7 +122,7 @@ def decide_tool(state: AgentState) -> dict:
         call = tool_calls[0]
         result = {"pending_tool": {"name": call["name"], "args": call["args"]}}
         set_cached(key, result)
-        return result
+        return _finalize(result)
 
     content = getattr(response, "content", "") or ""
     result = {"pending_tool": None, "response": content}

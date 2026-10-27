@@ -1,3 +1,4 @@
+import base64
 import httpx
 from urllib.parse import urlencode
 from fastapi import APIRouter, HTTPException
@@ -11,10 +12,6 @@ router = APIRouter()
 
 @router.get("/connections")
 def list_connections(user_id: str):
-    """
-    Backs the sidebar's MCP toggle list: every known service plus whether
-    this user has already connected it.
-    """
     connected = set(get_connected_services(user_id))
     return [
         {"id": service, "name": name, "connected": service in connected}
@@ -24,31 +21,30 @@ def list_connections(user_id: str):
 
 @router.get("/connect/{service}")
 def connect(service: str, user_id: str):
-    """
-    Frontend toggle hits this. Redirects the user to the provider's own
-    consent screen. `user_id` is threaded through via `state` so the
-    callback knows whose tokens these are.
-    """
     if service not in OAUTH_PROVIDERS:
         raise HTTPException(404, f"Unknown service '{service}'")
 
     provider = OAUTH_PROVIDERS[service]
+    if not provider["client_id"] or not provider["client_secret"]:
+        raise HTTPException(500, f"'{service}' OAuth credentials are not configured")
+
     redirect_uri = f"{REDIRECT_BASE_URL}/callback/{service}"
 
     params = {
         "client_id": provider["client_id"],
         "redirect_uri": redirect_uri,
         "response_type": "code",
-        "scope": provider["scopes"],
-        "state": user_id,  # carries user identity through the redirect
+        "state": user_id,
         **provider["extra_auth_params"],
     }
+    if provider["scopes"]:  # Notion has no scopes, so don't send an empty one
+        params["scope"] = provider["scopes"]
+
     return RedirectResponse(f"{provider['auth_url']}?{urlencode(params)}")
 
 
 @router.delete("/connect/{service}")
 def disconnect(service: str, user_id: str):
-    """Frontend toggle-off hits this to drop a stored connection."""
     if service not in OAUTH_PROVIDERS:
         raise HTTPException(404, f"Unknown service '{service}'")
 
@@ -58,13 +54,6 @@ def disconnect(service: str, user_id: str):
 
 @router.get("/callback/{service}")
 def callback(service: str, state: str, code: str | None = None, error: str | None = None):
-    """
-    Provider redirects here after the user responds to the consent screen.
-    `state` is the user_id we passed in. If the user denied access, most
-    providers send `error` instead of `code` -- CHANGED: handle that first
-    instead of requiring `code` unconditionally, which previously caused a
-    raw 422 validation error page on denial instead of a clean redirect.
-    """
     if service not in OAUTH_PROVIDERS:
         raise HTTPException(404, f"Unknown service '{service}'")
 
@@ -75,19 +64,38 @@ def callback(service: str, state: str, code: str | None = None, error: str | Non
     redirect_uri = f"{REDIRECT_BASE_URL}/callback/{service}"
     user_id = state
 
-    resp = httpx.post(
-        provider["token_url"],
-        data={
-            "grant_type": "authorization_code",
-            "code": code,
-            "redirect_uri": redirect_uri,
-            "client_id": provider["client_id"],
-            "client_secret": provider["client_secret"],
-        },
-        headers={"Accept": "application/json"},
-    )
+    payload = {
+        "grant_type": "authorization_code",
+        "code": code,
+        "redirect_uri": redirect_uri,
+    }
+    headers = {"Accept": "application/json"}
+
+    if service == "notion":
+        # Notion wants Basic auth and a JSON body
+        basic = base64.b64encode(
+            f"{provider['client_id']}:{provider['client_secret']}".encode()
+        ).decode()
+        headers["Authorization"] = f"Basic {basic}"
+        resp = httpx.post(provider["token_url"], json=payload, headers=headers)
+    elif service == "jira":
+        # Atlassian wants a JSON body
+        payload["client_id"] = provider["client_id"]
+        payload["client_secret"] = provider["client_secret"]
+        resp = httpx.post(provider["token_url"], json=payload, headers=headers)
+    else:
+        payload["client_id"] = provider["client_id"]
+        payload["client_secret"] = provider["client_secret"]
+        resp = httpx.post(provider["token_url"], data=payload, headers=headers)
+
+    if not resp.is_success:
+        print("TOKEN EXCHANGE FAILED:", service, resp.status_code, resp.text)
     resp.raise_for_status()
     data = resp.json()
+
+    if service == "slack" and not data.get("ok"):
+        print("SLACK ERROR:", data)
+        return RedirectResponse(f"{FRONTEND_URL}/?connection_error={service}")
 
     save_tokens(
         user_id=user_id,

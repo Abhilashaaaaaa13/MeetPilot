@@ -9,7 +9,7 @@ from typing import Optional
 from cachetools import TTLCache
 
 CACHE_ENABLED = os.environ.get("LLM_CACHE_ENABLED", "true").lower() == "true"
-CACHE_TTL_SECONDS = int(os.environ.get("LLM_CACHE_TTL", "3600"))   # 1 ghanta
+CACHE_TTL_SECONDS = int(os.environ.get("LLM_CACHE_TTL", "3600"))  
 CACHE_MAX_ITEMS = int(os.environ.get("LLM_CACHE_MAX", "500"))
 
 

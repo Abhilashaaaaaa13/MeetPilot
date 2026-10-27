@@ -2,6 +2,7 @@
 
 import os
 import sys
+import traceback
 
 from dotenv import load_dotenv
 
@@ -13,6 +14,8 @@ from typing import Optional
 from langgraph.types import Command
 
 from utils.fileReader import extract_text_from_file
+from utils.meeting_docs import split_meeting_text
+from utils.actionBlocks import normalize_reply, confirmation_message
 
 from agent.graph import build_graph
 from agent.confirmation import classify_confirmation_reply
@@ -66,16 +69,49 @@ def _format_result(result: dict, fallback_query: str, thread_id: str) -> dict:
             "thread_id": thread_id,
             "pending_tool": payload["tool"],
             "pending_args": payload["args"],
-            "message": f"About to run '{payload['tool']}' with {payload['args']}. Confirm?",
+            "message": confirmation_message(payload["tool"], payload["args"]),
         }
 
     return {
         "status": "done",
         "query": result.get("query", fallback_query),
-        "response": result.get("response", ""),
+        "response": normalize_reply(result.get("response", "")),
         "messages": result.get("messages", []),
         "tool_calls": result.get("tool_calls", []),
     }
+
+
+def _agent_error(exc: Exception) -> HTTPException:
+    traceback.print_exc()
+    message = str(exc)
+    if "rate_limit_exceeded" in message or "Error code: 413" in message or "Error code: 429" in message:
+        return HTTPException(
+            status_code=429,
+            detail="The AI model limit was reached. Try a shorter message, or wait a minute and try again.",
+        )
+    return HTTPException(status_code=500, detail=f"Agent execution failed: {message}")
+
+
+def build_query(text: str, file: Optional[UploadFile]) -> str:
+    """
+    No file: just the typed text.
+    File with Summary / Next steps (Gemini-style notes): send only the notes
+    to the agent, not the whole transcript.
+    Any other file: send the full text, like before.
+    """
+    if file is None:
+        return text.strip()
+
+    file_text = extract_text_from_file(file)
+    meeting = split_meeting_text(file_text)
+
+    if meeting.kind == "notes":
+        notes = meeting.notes_for_llm()
+        print(f"[upload] kind=notes original_chars={len(file_text)} sent_chars={len(notes)}")
+        return (text + "\n\n" + notes).strip()
+
+    print(f"[upload] kind=raw original_chars={len(file_text)} sent_chars={len(file_text)}")
+    return (text + "\n\n" + file_text).strip()
 
 
 def run_agent(query: str, user_id: str):
@@ -84,7 +120,7 @@ def run_agent(query: str, user_id: str):
     if not user_id or not user_id.strip():
         raise HTTPException(status_code=400, detail="user_id cannot be empty.")
 
-    thread_id = user_id  
+    thread_id = user_id
     config = {"configurable": {"thread_id": thread_id}}
 
     try:
@@ -105,7 +141,7 @@ def run_agent(query: str, user_id: str):
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"Agent execution failed: {exc}") from exc
+        raise _agent_error(exc) from exc
 
     return _format_result(result, query, thread_id)
 
@@ -132,7 +168,7 @@ def confirm_agent(user_id: str, reply_text: str):
     try:
         result = agent_graph.invoke(Command(resume=decision), config=config)
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"Agent execution failed: {exc}") from exc
+        raise _agent_error(exc) from exc
 
     return _format_result(result, reply_text, thread_id)
 
@@ -144,21 +180,13 @@ def home():
     return {"message": "Backend is running", "status": "ok"}
 
 
-@app.post("/login")
-def get_auth():
-    return {"message": "Login route is ready"}
-
-
 @app.post("/response")
 def get_response(
     text: str = Form(""),
     user_id: str = Form(...),
     file: Optional[UploadFile] = File(None),
 ):
-    combined_query = text
-    if file is not None:
-        combined_query = (text + "\n\n" + extract_text_from_file(file)).strip()
-    return run_agent(combined_query, user_id)
+    return run_agent(build_query(text, file), user_id)
 
 
 @app.post("/agent")
@@ -167,10 +195,7 @@ def agent_entry(
     user_id: str = Form(...),
     file: Optional[UploadFile] = File(None),
 ):
-    combined_query = text
-    if file is not None:
-        combined_query = (text + "\n\n" + extract_text_from_file(file)).strip()
-    return run_agent(combined_query, user_id)
+    return run_agent(build_query(text, file), user_id)
 
 
 @app.post("/agent/confirm")
